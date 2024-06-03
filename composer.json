@@ -1,0 +1,33 @@
+{
+  "name": "websource/websourcepricesupp",
+  "description": "Websource",
+  "authors": [
+    {
+      "name": "GUTIERREZ Jonathan",
+      "email": "jonathan@websource.fr"
+    },
+    {
+      "name": "BAILET Mathias",
+      "email": "mathiaswebsource@gmail.com"
+    }
+  ],
+  "require": {
+    "php": ">=8.0.0",
+    "symfony/yaml": "^7.0"
+  },
+  "autoload": {
+    "classmap": [
+      "websourcepricesupp.php"
+    ],
+    "exclude-from-classmap": []
+  },
+  "config": {
+    "preferred-install": "dist",
+    "prepend-autoloader": false,
+    "allow-plugins": {
+      "php-http/discovery": true
+    }
+  },
+  "type": "prestashop-module",
+  "author": "Websource"
+}
