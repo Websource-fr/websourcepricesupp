@@ -38,7 +38,7 @@ class WebsourcePriceSupp extends Module
     {
         $this->name = 'websourcepricesupp';
         $this->tab = 'front_office_features';
-        $this->version = '1.0.1';
+        $this->version = '1.0.2';
         $this->author = 'Websource';
         $this->need_instance = 0;
 
@@ -74,6 +74,9 @@ class WebsourcePriceSupp extends Module
         if (!$results || empty($results)) {
             return false;
         }
+
+        require_once _PS_MODULE_DIR_ . '/' . $this->name . '/sql/upgrade-1.0.2.php';
+
 
         $themeName = Context::getContext()->shop->theme_name;
 
@@ -191,38 +194,6 @@ class WebsourcePriceSupp extends Module
                     'icon' => 'icon-cogs',
                 ),
                 'input' => array(
-                    array(
-                        'type' => 'switch',
-                        'label' => $this->l('Live mode'),
-                        'name' => 'WEBSOURCEPRICESUPP_LIVE_MODE',
-                        'is_bool' => true,
-                        'desc' => $this->l('Use this module in live mode'),
-                        'values' => array(
-                            array(
-                                'id' => 'active_on',
-                                'value' => true,
-                                'label' => $this->l('Enabled')
-                            ),
-                            array(
-                                'id' => 'active_off',
-                                'value' => false,
-                                'label' => $this->l('Disabled')
-                            )
-                        ),
-                    ),
-                    array(
-                        'col' => 3,
-                        'type' => 'text',
-                        'prefix' => '<i class="icon icon-envelope"></i>',
-                        'desc' => $this->l('Enter a valid email address'),
-                        'name' => 'WEBSOURCEPRICESUPP_ACCOUNT_EMAIL',
-                        'label' => $this->l('Email'),
-                    ),
-                    array(
-                        'type' => 'password',
-                        'name' => 'WEBSOURCEPRICESUPP_ACCOUNT_PASSWORD',
-                        'label' => $this->l('Password'),
-                    ),
                 ),
                 'submit' => array(
                     'title' => $this->l('Save'),
@@ -255,66 +226,26 @@ class WebsourcePriceSupp extends Module
         }
     }
 
-    public function hookActionValidateOrder($params)
-    {
-        $cart = $params['cart'];
-
-        if($cart->is_rounded == 1) {
-            $order = $params['order'];
-            $order_id = $order->id;
-
-            // ID du produit d'arrondi (doit être configuré dans votre module)
-            $product_rounding_id = Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_ID');
-            if (!$product_rounding_id) {
-                // Créer le produit d'arrondi s'il n'existe pas
-                $product_rounding_id = $this->createRoundingProduct();
-                Configuration::updateValue('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_ID', $product_rounding_id);
-            }
-
-            // Calculer le montant pour arrondir le panier à l'entier supérieur
-            $total_paid = $order->total_paid_tax_incl;
-            $amount_to_round = ceil($total_paid) - $total_paid;
-
-            if ($amount_to_round > 0) {
-                // Créer un nouvel objet OrderDetail pour ajouter le produit d'arrondi à la commande
-                $orderDetail = new OrderDetail();
-                $orderDetail->id_order = $order_id;
-                $orderDetail->product_id = $product_rounding_id;
-                $orderDetail->product_name = 'Rounding Product';
-                $orderDetail->product_quantity = 1;
-                $orderDetail->product_price = $amount_to_round;
-                $orderDetail->total_price_tax_incl = $amount_to_round;
-                $orderDetail->total_price_tax_excl = $amount_to_round; // Assumer aucune taxe pour la simplicité
-                $orderDetail->id_order_invoice = $order->getInvoicesCollection()->getFirst()->id;
-                $orderDetail->id_shop = $this->context->shop->id;
-                $orderDetail->id_warehouse = 0; // Assumer aucun entrepôt pour la simplicité
-
-                // Enregistrer le nouveau OrderDetail
-                $orderDetail->add();
-
-                // Recalculer les totaux de la commande
-                $order->total_paid_tax_incl = ceil($total_paid);
-                $order->total_paid_tax_excl = ceil($total_paid); // Assumer aucune taxe pour la simplicité
-                $order->total_products += $amount_to_round;
-                $order->total_products_wt += $amount_to_round;
-                $order->update();
-            }
-        }
-    }
-
-    private function createRoundingProduct()
+    public function createRoundingProduct($cts = 1)
     {
         $product = new Product();
-        $product->name = array_fill_keys(Language::getIDs(), 'Arrondir mon panier');
-        $product->link_rewrite = array_fill_keys(Language::getIDs(), 'arrondir-mon-panier');
-        $product->price = 0;
+        $product->price = $cts / 100;
         $product->active = 1;
         $product->redirect_type = '404';
         $product->indexed = 0;
+        $product->is_virtual = 1;
+        $product->available_for_order = 1;
+        $product->visibility = 'both';
+        $product->show_price = 0;
+        $product->date_add = date('Y-m-d H:i:s');
+        $product->date_upd = date('Y-m-d H:i:s');
 
         foreach (Language::getLanguages(true) as $lang) {
-            $product->name[$lang['id_lang']] = 'Arrondir mon panier';
-            $product->link_rewrite[$lang['id_lang']] = 'arrondir-mon-panier';
+            $product->name[$lang['id_lang']] = 'Arrondi de ' . $cts / 100 . ' ct';
+            if ($cts > 1) {
+                $product->name[$lang['id_lang']] .= 's';
+            }
+            $product->link_rewrite[$lang['id_lang']] = 'arrondi-' . sprintf("%03d", $cts);
         }
 
         $product->add();
@@ -347,21 +278,44 @@ class WebsourcePriceSupp extends Module
     {
         $cart = new Cart((int)$this->context->cart->id);
 
-        $total = $cart->getOrderTotal(true, Cart::BOTH);
-        $roundedTotal = ceil($total);
-        $roundedAmount = $roundedTotal - $total;
+        $roundedTotal = $cart->getOrderTotal(true, Cart::BOTH);
 
-        $this->context->smarty->assign(array(
-            'roundedTotal' => $roundedTotal,
-            'roundedAmount' => $roundedAmount,
-        ));
-
-        $template_file = $params['template_file'];
-
-        // when I see that FrontController is trying to load 'catalog/product' I modify the behavior:
-        if ($template_file === 'checkout/cart') {
-            return 'module:' . $this->name . '/views/templates/front/override_cart.tpl';
+        $listCtsProducts = [];
+        for ($i = 1; $i < 100; $i++) {
+            $cts = sprintf('%03d', $i);
+            $listCtsProducts[$cts] = (int)Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . $cts);
         }
+
+        if($this->context->cart->id !== null) {
+            $sql = "SELECT * FROM " . _DB_PREFIX_ . "cart_product WHERE id_cart=" . $cart->id . " AND id_product IN (" . implode(',', $listCtsProducts) . ")";
+
+            $cartProductCts = Db::getInstance()->executeS($sql);
+            $roundedAmount = 0;
+            if (count($cartProductCts) > 0) {
+                $productCts = new Product((int)$cartProductCts[0]['id_product']);
+                $roundedAmount = $productCts->price;
+            }
+
+
+            $isRounded = $cart->is_rounded;
+
+            $this->context->smarty->assign(array(
+                'roundedTotal' => $roundedTotal,
+                'roundedAmount' => $roundedAmount,
+                'isRounded' => $isRounded,
+            ));
+
+            $template_file = $params['template_file'];
+
+            // when I see that FrontController is trying to load 'catalog/product' I modify the behavior:
+            if ($template_file === 'checkout/cart') {
+                return 'module:' . $this->name . '/views/templates/front/override_cart.tpl';
+            }
+            if ($template_file === 'checkout/checkout') {
+                return 'module:' . $this->name . '/views/templates/front/override_checkout.tpl';
+            }
+        }
+
 
         // else I do nothing
         return false;

@@ -2,7 +2,7 @@
 <module>
 	<name>websourcepricesupp</name>
 	<displayName><![CDATA[Websource button price supperieur]]></displayName>
-	<version><![CDATA[1.0.0]]></version>
+	<version><![CDATA[1.0.2]]></version>
 	<description><![CDATA[button which ensures that the total price of the basket is rounded up]]></description>
 	<author><![CDATA[Websource]]></author>
 	<tab><![CDATA[front_office_features]]></tab>
