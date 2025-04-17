@@ -1,32 +1,49 @@
-.cart-summary-line.cart-total.is-rounded{
-    font-size: 1.2rem;
+.cart-summary-line.cart-total.is-rounded .label {
     font-weight: bold;
-
 }
 
 .cart-rounding {
-    display: flex;
-    justify-content: center;
     margin-top: 20px;
+    margin-bottom: 20px;
 }
 
-/* Style du bouton */
-.btn-cart-rounding {
-    display: inline-block;
-    padding: 12px 24px;
-    background-color: #47bfa5; /* Couleur de fond verte */
-    color: #fff !important; /* Couleur du texte blanche */
+.cart-rounding-flex {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     text-align: center;
-    text-decoration: none;
-    font-size: 16px;
-    border: none;
-    border-radius: 2px; /* Bordures arrondies */
-    transition: background-color 0.3s ease, box-shadow 0.3s ease;
-    cursor: pointer;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Ombre */
+}
+
+.cart-summary-line {
+    text-align: left;
+}
+
+.cart-summary-line > div:last-child {
+    display: none;
+}
+
+.btn-cart-rounding {
+    display: inline;
+}
+
+.cart-grid-right .cart-rounding-button-container {
+    text-align: center;
 }
 
 .btn-cart-rounding:hover {
     background-color: #3aa18b; /* Couleur de fond au survol */
     box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15); /* Ombre au survol */
+}
+
+.cart-detailed-totals .card-body {
+    padding-bottom: 0;
+}
+
+.cart-detailed-totals .card-body.cart-summary-totals {
+    padding-top: 0;
+}
+
+.row.is-rounded {
+    margin-right: 0;
+    margin-left: 0;
 }

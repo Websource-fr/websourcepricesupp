@@ -2,7 +2,7 @@
 <module>
     <name>websourcepricesupp</name>
     <displayName><![CDATA[Websource : Bouton d&#039;arrondi du panier]]></displayName>
-    <version><![CDATA[1.0.1]]></version>
+    <version><![CDATA[1.0.2]]></version>
     <description><![CDATA[Arrondi sup&eacute;rieur du panier]]></description>
     <author><![CDATA[Websource]]></author>
     <tab><![CDATA[front_office_features]]></tab>

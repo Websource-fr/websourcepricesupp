@@ -1,5 +1,4 @@
 <div class="card-body cart-summary-totals js-cart-summary-totals">
-
     {block name='cart_summary_total'}
         {if !$configuration.display_prices_tax_incl && $configuration.taxes_enabled}
             <div class="cart-summary-line">
