@@ -25,6 +25,10 @@ class WebsourcePriceSuppRoundCartModuleFrontController extends ModuleFrontContro
             die(json_encode(['success' => false]));
         }
 
+        // L'état est relu en base : selon la version de PrestaShop, la première instance de Cart de la
+        // requête (créée avant l'ajout du champ par la surcharge) ne charge pas la colonne is_rounded.
+        $cart->is_rounded = (int) Db::getInstance()->getValue('SELECT is_rounded FROM ' . _DB_PREFIX_ . 'cart WHERE id_cart = ' . (int) $cart->id);
+
         for ($cts = 1; $cts < 100; $cts++) {
             if (Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . sprintf("%03d", $cts)) == null) {
                 $product_rounding_id = $this->module->createRoundingProduct($cts);
@@ -37,14 +41,20 @@ class WebsourcePriceSuppRoundCartModuleFrontController extends ModuleFrontContro
         $amount_to_round = ceil((double)$total_paid) - (double)$cart->getOrderTotal(true, Cart::BOTH);
 
 
-        // Mettre à jour le prix du produit e nfonction du total du panier
+        // Mettre à jour le prix du produit en fonction du total du panier
+        $cents = (int) round($amount_to_round * 100);
+        if ($cart->is_rounded == 0 && ($cents < 1 || $cents > 99)) {
+            // Le total est déjà un montant entier : rien à arrondir.
+            die(json_encode(array('success' => false, 'state' => (int) $cart->is_rounded)));
+        }
+
         if ($cart->is_rounded == 0) {
             $new_text = $this->l('Ne plus arrondir mon panier');
             $cart->is_rounded = 1;
 
             $sql = "INSERT INTO " . _DB_PREFIX_ . "cart_product SET 
             id_cart=" . $cart->id . ",
-            id_product=" . (int)Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . sprintf('%03d', round($amount_to_round * 100))) . ",
+            id_product=" . (int)Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . sprintf('%03d', $cents)) . ",
             id_address_delivery=" . $cart->id_address_delivery . ",
             id_shop=" . $cart->id_shop . ",
             id_product_attribute=0,
@@ -59,9 +69,6 @@ class WebsourcePriceSuppRoundCartModuleFrontController extends ModuleFrontContro
             $new_text = $this->l('Arrondir mon panier');
             $cart->is_rounded = 0;
 
-            for ($i = 1; $i < 100; $i++) {
-
-            }
             for ($i = 1; $i < 100; $i++) {
                 $id_product_to_delete = (int)Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . sprintf('%03d', $i));
                 $cart->deleteProduct((int)$id_product_to_delete);

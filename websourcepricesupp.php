@@ -28,8 +28,6 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-use Symfony\Component\Yaml\Yaml;
-
 class WebsourcePriceSupp extends Module
 {
     protected $config_form = false;
@@ -38,7 +36,7 @@ class WebsourcePriceSupp extends Module
     {
         $this->name = 'websourcepricesupp';
         $this->tab = 'front_office_features';
-        $this->version = '1.0.2';
+        $this->version = '1.1.0';
         $this->author = 'Websource';
         $this->need_instance = 0;
 
@@ -57,80 +55,119 @@ class WebsourcePriceSupp extends Module
         $this->ps_versions_compliancy = array('min' => '1.6', 'max' => _PS_VERSION_);
     }
 
-    /**
-     * Don't forget to create update methods if needed:
-     * http://doc.prestashop.com/display/PS16/Enabling+the+Auto-Update
-     */
-    public function install()
+    /* ------------------------------------------------------------------
+     * Détection de la version de PrestaShop et du thème
+     * ---------------------------------------------------------------- */
+
+    /** true en PrestaShop 1.7 et au-delà (Classic, Hummingbird, Warehouse...). */
+    public static function is17()
     {
-        Configuration::updateValue('WEBSOURCEPRICESUPP_LIVE_MODE', false);
+        return version_compare(_PS_VERSION_, '1.7', '>=');
+    }
 
-        require_once _PS_MODULE_DIR_ . '/' . $this->name . '/sql/install.php';
-
-        // Sélectionner le thème actif
-        $select_theme = "SELECT `theme_name` FROM `" . _DB_PREFIX_ . "shop` WHERE `active` = 1";
-        $results = Db::getInstance()->executeS($select_theme);
-
-        if (!$results || empty($results)) {
-            return false;
+    /** Nom du thème actif + de son parent, en minuscules (vide en 1.6). */
+    public function themeNames()
+    {
+        $shop = $this->context->shop;
+        $t = isset($shop->theme) ? $shop->theme : null;
+        if (!is_object($t) || !method_exists($t, 'getName')) {
+            return '';
         }
+        $parent = method_exists($t, 'get') ? (string) $t->get('parent') : '';
 
-        require_once _PS_MODULE_DIR_ . '/' . $this->name . '/sql/upgrade-1.0.2.php';
+        return Tools::strtolower($t->getName() . ' ' . $parent);
+    }
 
-
-        $themeName = Context::getContext()->shop->theme_name;
-
-        $themePath = _PS_THEME_DIR_ . '../' . $themeName . '/templates/checkout/cart.tpl';
-
-        if (!file_exists($themePath)) {
-            $themeYmlPath = _PS_THEME_DIR_ . '../' . $themeName . '/config/theme.yml';
-            if (file_exists($themeYmlPath)) {
-                $themeConfig = Yaml::parseFile($themeYmlPath);
-                if (isset($themeConfig['parent'])) {
-                    $themeName = $themeConfig['parent'];
-                    $themePath = _PS_THEME_DIR_ . '../' . $themeName . '/templates/checkout/cart.tpl';
-                }
+    /**
+     * Famille de thème : '16', 'hummingbird', 'warehouse', 'classic' ou 'other'
+     * (thème inconnu : balisage Bootstrap générique).
+     */
+    public function themeFamily()
+    {
+        if (!self::is17()) {
+            return '16';
+        }
+        $n = $this->themeNames();
+        foreach (array('hummingbird', 'warehouse', 'classic') as $f) {
+            if (strpos($n, $f) !== false) {
+                return $f;
             }
         }
 
-        $destinationDir = _PS_MODULE_DIR_ . $this->name . '/views/templates/front/';
-        $destination = $destinationDir . 'override_cart.tpl';
+        return 'other';
+    }
 
-        $content = file_get_contents($themePath);
-        if ($content === false) {
-            $this->_errors[] = $this->l('Échec de la lecture du fichier source : ') . $themePath;
-            return false;
+    /** Prix formaté (Tools::displayPrice a disparu en PrestaShop 9). */
+    public function formatPrice($amount)
+    {
+        $currency = $this->context->currency;
+        if (method_exists($this->context, 'getCurrentLocale') && $this->context->getCurrentLocale()) {
+            return $this->context->getCurrentLocale()->formatPrice((float) $amount, $currency->iso_code);
         }
 
-        $pattern_totals = '/\{block name=\'cart_totals\'\}(.*)\{\/block\}/s';
-        $replacement_totals = "{block name='cart_totals'}\n{include file='module:websourcepricesupp/views/templates/checkout/_partials/cart-detailed-totals.tpl' cart=\$cart}\n{/block}";
-        $content = preg_replace($pattern_totals, $replacement_totals, $content);
+        return Tools::displayPrice((float) $amount, $currency);
+    }
 
-        $newBlock = "{block name='cart_roundup'}\n{include file='module:websourcepricesupp/views/templates/checkout/_partials/cart-roundup.tpl' cart=\$cart}\n{/block}";
-        $content = preg_replace('/(\{\/block\})/s', "$1\n$newBlock", $content, 1);
+    /**
+     * Installation. Les 99 produits « Arrondi » sont créés à la demande par le
+     * contrôleur roundcart (plus de création en masse à l'installation).
+     */
+    public function install()
+    {
+        try {
+            require_once _PS_MODULE_DIR_ . '/' . $this->name . '/sql/install.php';
 
-        $pattern_summary = '/\{block name=\'cart_summary\'\}(.*)\{\/block\}/s';
-        $replacement_summary = "{block name='cart_summary'}\n<div class=\"card cart-summary\">\n{include file='module:websourcepricesupp/views/templates/checkout/_partials/cart-detailed-totals.tpl' cart=\$cart}\n$newBlock\n</div>\n{/block}";
-        $content = preg_replace($pattern_summary, $replacement_summary, $content);
+            if (!parent::install()) {
+                return false;
+            }
 
-        if (file_put_contents($destination, $content) === false) {
-            $this->_errors[] = $this->l('Échec de l\'écriture du fichier de destination : ') . $destination;
-            return false;
+            $hooksOk = $this->registerHook('displayHeader')
+                && $this->registerHook('actionValidateOrder')
+                && $this->registerHook('displayOverrideTemplate')
+                && $this->registerHook('displayShoppingCartFooter')
+                && $this->registerHook('displayBackOfficeHeader');
+
+            if (!$hooksOk) {
+                $this->uninstall();
+
+                return false;
+            }
+
+            Configuration::updateValue('WEBSOURCEPRICESUPP_LIVE_MODE', false);
+
+            return true;
+        } catch (Exception $e) {
+            return $this->abortInstall();
+        } catch (Throwable $e) { // PHP 7+ (TypeError, Error...)
+            return $this->abortInstall();
+        }
+    }
+
+    /** Never leave the module half-installed: clean up so the next attempt starts fresh. */
+    private function abortInstall()
+    {
+        try {
+            $this->uninstall();
+        } catch (Exception $e) {
+            // best effort
+        } catch (Throwable $e) {
+            // best effort
         }
 
-
-        return parent::install() &&
-            $this->registerHook('header') &&
-            $this->registerHook('actionValidateOrder') &&
-            $this->registerHook('displayOverrideTemplate') &&
-            $this->registerHook('displayBackOfficeHeader');
+        return false;
     }
 
     public function uninstall()
     {
         Configuration::deleteByName('WEBSOURCEPRICESUPP_LIVE_MODE');
 
-        require_once _PS_MODULE_DIR_ . '/' . $this->name . '/sql/uninstall.php';
+        try {
+            require_once _PS_MODULE_DIR_ . '/' . $this->name . '/sql/uninstall.php';
+        } catch (Exception $e) {
+            // best effort
+        } catch (Throwable $e) {
+            // best effort
+        }
 
         return parent::uninstall();
     }
@@ -151,7 +188,7 @@ class WebsourcePriceSupp extends Module
 
         $output = $this->context->smarty->fetch($this->local_path . 'views/templates/admin/configure.tpl');
 
-        return $output . $this->renderForm();
+        return $output . $this->supportBlock() . $this->renderForm();
     }
 
     /**
@@ -265,59 +302,134 @@ class WebsourcePriceSupp extends Module
     }
 
     /**
-     * Add the CSS & JavaScript files you want to be added on the FO.
+     * Assets du front : registerStylesheet / registerJavascript en 1.7+ (CCC, thèmes enfants),
+     * addCSS / addJS en 1.6.
      */
-    public function hookHeader()
+    public function hookDisplayHeader()
     {
-        $this->context->controller->addJS($this->_path . '/views/js/front.js');
-        $this->context->controller->addCSS($this->_path . '/views/css/front.css');
+        $c = $this->context->controller;
+        if (method_exists($c, 'registerStylesheet')) {
+            $c->registerStylesheet($this->name . '-front', 'modules/' . $this->name . '/views/css/front.css', array('media' => 'all', 'priority' => 150));
+            $c->registerJavascript($this->name . '-front', 'modules/' . $this->name . '/views/js/front.js', array('position' => 'bottom', 'priority' => 150));
+        } else {
+            $c->addJS($this->_path . 'views/js/front.js');
+            $c->addCSS($this->_path . 'views/css/front.css');
+        }
     }
 
+    /** Ancien nom du hook (PrestaShop 1.6 et installations antérieures à 1.1.0). */
+    public function hookHeader()
+    {
+        $this->hookDisplayHeader();
+    }
 
+    /**
+     * Prépare les variables du bloc « Arrondir mon panier ».
+     *
+     * @return bool false si aucun panier n'est disponible
+     */
+    protected function assignRoundingVars()
+    {
+        $cart = $this->context->cart;
+        if (!Validate::isLoadedObject($cart)) {
+            return false;
+        }
+
+        $isRounded = (int) Db::getInstance()->getValue('SELECT `is_rounded` FROM `' . _DB_PREFIX_ . 'cart` WHERE `id_cart` = ' . (int) $cart->id);
+
+        $roundedAmount = 0;
+        if ($isRounded) {
+            $ids = array();
+            for ($i = 1; $i < 100; $i++) {
+                $id = (int) Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . sprintf('%03d', $i));
+                if ($id) {
+                    $ids[] = $id;
+                }
+            }
+            if ($ids) {
+                $idProduct = (int) Db::getInstance()->getValue('SELECT `id_product` FROM `' . _DB_PREFIX_ . 'cart_product` WHERE `id_cart` = ' . (int) $cart->id . ' AND `id_product` IN (' . implode(',', $ids) . ')');
+                if ($idProduct) {
+                    $product = new Product($idProduct);
+                    $roundedAmount = (float) $product->price;
+                }
+            }
+        }
+
+        $this->context->smarty->assign(array(
+            'ws_round_is_rounded' => $isRounded,
+            'ws_round_amount' => $roundedAmount,
+            'ws_round_amount_formatted' => $roundedAmount ? $this->formatPrice($roundedAmount) : '',
+            'ws_round_url' => $this->context->link->getModuleLink($this->name, 'roundcart'),
+            'ws_round_theme' => $this->themeFamily(),
+        ));
+
+        return true;
+    }
+
+    /**
+     * PrestaShop 1.7+ : remplace checkout/cart et checkout/checkout par des gabarits du module qui
+     * ÉTENDENT le gabarit du thème actif (Classic, Hummingbird, Warehouse, thème enfant...) et ajoutent
+     * le bloc d'arrondi sous le récapitulatif : le balisage du thème n'est jamais recopié.
+     * Un thème peut surcharger ces gabarits dans themes/<thème>/modules/websourcepricesupp/views/templates/front/.
+     */
     public function hookDisplayOverrideTemplate($params)
     {
-        $cart = new Cart((int)$this->context->cart->id);
-
-        $roundedTotal = $cart->getOrderTotal(true, Cart::BOTH);
-
-        $listCtsProducts = [];
-        for ($i = 1; $i < 100; $i++) {
-            $cts = sprintf('%03d', $i);
-            $listCtsProducts[$cts] = (int)Configuration::get('WEBSOURCEPRICESUPP_PRODUCT_ROUNDING_' . $cts);
+        $template_file = isset($params['template_file']) ? $params['template_file'] : '';
+        if ($template_file !== 'checkout/cart' && $template_file !== 'checkout/checkout') {
+            return false;
+        }
+        if (!$this->assignRoundingVars()) {
+            return false;
         }
 
-        if($this->context->cart->id !== null) {
-            $sql = "SELECT * FROM " . _DB_PREFIX_ . "cart_product WHERE id_cart=" . $cart->id . " AND id_product IN (" . implode(',', $listCtsProducts) . ")";
-
-            $cartProductCts = Db::getInstance()->executeS($sql);
-            $roundedAmount = 0;
-            if (count($cartProductCts) > 0) {
-                $productCts = new Product((int)$cartProductCts[0]['id_product']);
-                $roundedAmount = $productCts->price;
-            }
-
-
-            $isRounded = $cart->is_rounded;
-
-            $this->context->smarty->assign(array(
-                'roundedTotal' => $roundedTotal,
-                'roundedAmount' => $roundedAmount,
-                'isRounded' => $isRounded,
-            ));
-
-            $template_file = $params['template_file'];
-
-            // when I see that FrontController is trying to load 'catalog/product' I modify the behavior:
-            if ($template_file === 'checkout/cart') {
-                return 'module:' . $this->name . '/views/templates/front/override_cart.tpl';
-            }
-            if ($template_file === 'checkout/checkout') {
-                return 'module:' . $this->name . '/views/templates/front/override_checkout.tpl';
-            }
+        if ($template_file === 'checkout/cart') {
+            return 'module:' . $this->name . '/views/templates/front/override_cart.tpl';
         }
 
+        return 'module:' . $this->name . '/views/templates/front/override_checkout.tpl';
+    }
 
-        // else I do nothing
-        return false;
+    /**
+     * PrestaShop 1.6 uniquement (en 1.7+ le bloc est injecté par displayOverrideTemplate) :
+     * bouton d'arrondi sous le panier. Le produit « Arrondi » faisant partie du panier,
+     * le total par défaut du thème en tient compte.
+     */
+    public function hookDisplayShoppingCartFooter($params)
+    {
+        if (self::is17() || !$this->assignRoundingVars()) {
+            return '';
+        }
+
+        return $this->display(__FILE__, 'hook/cart-rounding-block.tpl');
+    }
+
+    /**
+     * Encart « accompagnement Websource » : uniquement dans le back-office, pour un super-administrateur
+     * connecté (jamais côté boutique ni dans les e-mails). Partial : views/templates/admin/websource_support.tpl
+     * (surchargeable). Seuls le nom du module, sa version, la version de PrestaShop et l'adresse du site
+     * sont transmis, dans l'URL du lien, au clic.
+     *
+     * @return string
+     */
+    public function supportBlock()
+    {
+        $employee = $this->context->employee;
+        if (!defined('_PS_ADMIN_DIR_') || !is_object($employee) || !$employee->id || !$employee->isSuperAdmin()) {
+            return '';
+        }
+        $site = Tools::getShopDomainSsl(true);
+        $base = 'https://www.websource.fr/contact?utm_source=' . rawurlencode($this->name)
+            . '&utm_medium=admin-module&utm_campaign=accompagnement'
+            . '&ws_module=' . rawurlencode($this->name)
+            . '&ws_mv=' . rawurlencode($this->version)
+            . '&ws_cms=prestashop'
+            . '&ws_cmsv=' . rawurlencode(_PS_VERSION_)
+            . '&ws_site=' . rawurlencode($site);
+        $this->context->smarty->assign(array(
+            'ws_support_contact' => $base,
+            'ws_support_rdv' => $base . '&utm_content=rdv',
+        ));
+
+        return $this->context->smarty->fetch($this->local_path . 'views/templates/admin/websource_support.tpl');
     }
 }

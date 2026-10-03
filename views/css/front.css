@@ -1,49 +1,26 @@
-.cart-summary-line.cart-total.is-rounded .label {
-    font-weight: bold;
-}
-
-.cart-rounding {
-    margin-top: 20px;
-    margin-bottom: 20px;
-}
-
-.cart-rounding-flex {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+/* Bloc « Arrondir mon panier » (Websource) : styles minimaux, le bouton hérite du thème (btn btn-primary). */
+.ws-cart-rounding {
+    margin: 16px 0;
     text-align: center;
 }
 
-.cart-summary-line {
+.ws-cart-rounding__line {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 0 0 12px;
     text-align: left;
 }
 
-.cart-summary-line > div:last-child {
-    display: none;
+.ws-cart-rounding__value {
+    font-weight: 700;
 }
 
-.btn-cart-rounding {
-    display: inline;
+.ws-cart-rounding__btn {
+    cursor: pointer;
 }
 
-.cart-grid-right .cart-rounding-button-container {
-    text-align: center;
-}
-
-.btn-cart-rounding:hover {
-    background-color: #3aa18b; /* Couleur de fond au survol */
-    box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15); /* Ombre au survol */
-}
-
-.cart-detailed-totals .card-body {
-    padding-bottom: 0;
-}
-
-.cart-detailed-totals .card-body.cart-summary-totals {
-    padding-top: 0;
-}
-
-.row.is-rounded {
-    margin-right: 0;
-    margin-left: 0;
+.ws-cart-rounding__btn.is-loading {
+    opacity: .6;
+    pointer-events: none;
 }
